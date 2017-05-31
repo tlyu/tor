@@ -456,12 +456,12 @@ static char *
 encode_enc_key(const hs_desc_intro_point_t *ip)
 {
   char *encoded = NULL, *encoded_cert;
-  char key_b64[CURVE25519_BASE64_PADDED_LEN + 1];
+  char key_b64[CURVE25519_BASE64_BUFSIZE];
 
   tor_assert(ip);
 
   /* Base64 encode the encryption key for the "enc-key" field. */
-  if (curve25519_public_to_base64(key_b64, &ip->enc_key) < 0) {
+  if (curve25519_public_to_base64(key_b64, &ip->enc_key, 0) < 0) {
     goto done;
   }
   if (tor_cert_encode_ed22519(ip->enc_key_cert, &encoded_cert) < 0) {
@@ -843,13 +843,13 @@ get_outer_encrypted_layer_plaintext(const hs_descriptor_t *desc,
   smartlist_add_asprintf(lines, "%s %s\n", str_desc_auth_type, "x25519");
 
   {  /* Create fake ephemeral x25519 key */
-    char fake_key_base64[CURVE25519_BASE64_PADDED_LEN + 1];
+    char fake_key_base64[CURVE25519_BASE64_BUFSIZE];
     curve25519_keypair_t fake_x25519_keypair;
     if (curve25519_keypair_generate(&fake_x25519_keypair, 0) < 0) {
       goto done;
     }
     if (curve25519_public_to_base64(fake_key_base64,
-                                    &fake_x25519_keypair.pubkey) < 0) {
+                                    &fake_x25519_keypair.pubkey, 0) < 0) {
       goto done;
     }
     smartlist_add_asprintf(lines, "%s %s\n",
