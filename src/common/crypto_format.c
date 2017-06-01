@@ -132,26 +132,22 @@ int
 curve25519_public_to_base64(char *output,
                             const curve25519_public_key_t *pkey, int pad)
 {
-  char buf[CURVE25519_BASE64_BUFSIZE];
-  int n, expected_len, buf_size;
+  int n, expected_len;
   if (pad) {
-    n = base64_encode(buf, sizeof(buf),
+    n = base64_encode(output, CURVE25519_BASE64_BUFSIZE,
                       (const char*)pkey->public_key,
                       CURVE25519_PUBKEY_LEN, 0);
     expected_len = CURVE25519_BASE64_LEN;
-    buf_size = CURVE25519_BASE64_BUFSIZE;
   } else {
-    n = base64_encode_nopad(buf, sizeof(buf),
+    n = base64_encode_nopad(output, CURVE25519_BASE64_BUFSIZE,
                             (const uint8_t*)pkey->public_key,
                             CURVE25519_PUBKEY_LEN);
     expected_len = CURVE25519_BASE64_NOPAD_LEN;
-    buf_size = CURVE25519_BASE64_NOPAD_BUFSIZE;
   }
 
   if (n != expected_len) {
     return -1;
   }
-  memcpy(output, buf, buf_size);
 
   return 0;
 }
