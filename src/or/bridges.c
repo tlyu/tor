@@ -54,6 +54,8 @@ struct bridge_info_t {
 };
 
 static void bridge_free(bridge_info_t *bridge);
+static void rewrite_node_address_for_bridge(const bridge_info_t *bridge,
+                                            node_t *node);
 
 /** A list of configured bridges. Whenever we actually get a descriptor
  * for one, we add it as an entry guard.  Note that the order of bridges
@@ -569,6 +571,12 @@ launch_direct_bridge_descriptor_fetch(bridge_info_t *bridge)
                "bridge, but that bridge is not reachable through our "
                "firewall.");
     return;
+  }
+
+  /* If we already have a node_t for this bridge, rewrite its address now. */
+  node_t *node = node_get_mutable_by_id(bridge->identity);
+  if (node) {
+    rewrite_node_address_for_bridge(bridge, node);
   }
 
   guard_state = get_guard_state_for_bridge_desc_fetch(bridge->identity);
