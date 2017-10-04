@@ -3,6 +3,8 @@ before_script:
     - apt-get upgrade -qy
 
 build:
+  only:
+    - pushes
   script:
     - apt-get install -qy --fix-missing automake build-essential
       libevent-dev libssl-dev zlib1g-dev
@@ -13,33 +15,66 @@ build:
     - make check || (e=$?; cat test-suite.log; exit $e)
     - make install
 
-update:
+# Repository mirroring job.  This is meant to run out of a scheduler or
+# trigger.  The example variable settings are suitable for updating a personal
+# (read/write) mirror of the official tor repository, using self-hosted GitLab
+# CI.
+mirror:
   only:
     - schedules
-  script: 
-    - "apt-get install -y --fix-missing git openssh-client"
-    
-    # Run ssh-agent (inside the build environment)
+    - triggers
+    - web
+
+  variables:
+    # A checked out working copy is not needed for mirroring.
+    GIT_CHECKOUT: "false"
+
+    # Set TAGS to "--tags" to push tags as well
+    TAGS: "--tags"
+
+    # Set FORCE_LOCALREFS to "--force" or "--force --prune" to force-push the
+    # "local" heads; this is only really appropriate for mirrors that are
+    # intended to be read-only.
+    FORCE_LOCALREFS: ""
+
+    # Set PRISTINE_UPSTREAM to non-empty to keep a separate pristine copy of
+    # the upstream heads in refs/remotes/upstream.  Read-only mirrors probably
+    # don't need this.
+    PRISTINE_UPSTREAM: "true"
+
+    # Adjust these variables for your individual repository locations.
+    UPSTREAM_URL: https://git.torproject.org/tor.git
+    WRITABLE_URL: git@oniongit.eu:catalyst/tor-mirror-test.git
+    SSH_HOSTNAME: oniongit.eu
+    SSH_HOSTS_FILE: "oniongit.eu,37.218.242.159 ecdsa-sha2-nistp256 \
+      AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBCHC+sxHL19Rvc01ZA\
+      vtxtRDtEzkZG3zEJdkvNi8ncx3+96dj9014wWMKtcFXGfNcVOxA2J4l8eyW3VHgASj51g="
+    # DEPLOY_KEY: only set this as a secret variable!
+
+  script:
+    # Exit early if required variables aren't set; this is friendlier to forks.
+    - if [ -z "$DEPLOY_KEY" ]; then exit 0; fi
+    - if [ -z "$SSH_HOSTNAME" ]; then exit 0; fi
+    - if [ -z "$SSH_HOSTS_FILE" ]; then exit 0; fi
+    - if [ -z "$UPSTREAM_URL" ]; then exit 0; fi
+    - if [ -z "$WRITABLE_URL" ]; then exit 0; fi
+
+    - apt-get install -qy git
+    - git status
+    - git remote -v
+
     - eval $(ssh-agent -s)
-
-    # Add the SSH key stored in SSH_PRIVATE_KEY variable to the agent store
     - ssh-add <(echo "$DEPLOY_KEY")
+    - if [ -d ~/.ssh ]; then :; else mkdir ~/.ssh; fi
+    - ssh-keygen -F "$SSH_HOSTNAME" -f ~/.ssh/known_hosts
+      || cat >> ~/.ssh/known_hosts <(echo "$SSH_HOSTS_FILE")
 
-    # For Docker builds disable host key checking. Be aware that by adding that
-    # you are suspectible to man-in-the-middle attacks.
-    # WARNING: Use this only with the Docker executor, if you use it with shell
-    # you will overwrite your user's SSH config.
-    - mkdir -p ~/.ssh
-    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
-    # In order to properly check the server's host key, assuming you created the
-    # SSH_SERVER_HOSTKEYS variable previously, uncomment the following two lines
-    # instead.
-    - mkdir -p ~/.ssh
-    - '[[ -f /.dockerenv ]] && echo "$SSH_SERVER_HOSTKEYS" > ~/.ssh/known_hosts'
-    - echo "merging from torgit"
-    - git config --global user.email "labadmin@oniongit.eu"
-    - git config --global user.name "gitadmin"
-    - "mkdir tor"
-    - "cd tor" 
-    - git clone --bare https://git.torproject.org/tor.git
-    - git push --mirror git@oniongit.eu:network/tor.git
+    # git remote get-url is new-ish and not available on some CI runners
+    - git remote show upstream || git remote add upstream "$UPSTREAM_URL"
+    - git fetch upstream
+    - if [ -n "$PRISTINE_UPSTREAM" ]; then
+      git push --prune "$WRITABLE_URL"
+      "+refs/remotes/upstream/*:refs/remotes/upstream/*"; fi
+    - git push $FORCE_LOCALREFS $TAGS "$WRITABLE_URL"
+      "refs/remotes/upstream/*:refs/heads/*"
+      || echo "failed to update some refs; maybe they diverged?"
