@@ -22,6 +22,7 @@ cleanup:
     - cat test-suite.log
 
 update:
+  stage: build
   only:
     - schedules
   script: 
