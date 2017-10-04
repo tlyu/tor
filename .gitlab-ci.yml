@@ -2,27 +2,15 @@ before_script:
     - "apt-get update -qq"
     - "apt-get upgrade -y"
 
-stages:
-    - build
-    - cleanup
-
 build:
-  stage: build
   script:
     - "apt-get install -y --fix-missing git openssh-client wget gcc g++ automake cmake make libglib2.0 libglib2.0-dev libigraph0 libigraph0-dev libevent-dev openssl libssl-dev"
     - ./autogen.sh
     - "./configure --disable-asciidoc --enable-fatal-warnings --disable-silent-rules --enable-fragile-hardening"
-    - "make check"
+    - "make check || (e=$?; cat test-suite.log; exit $e)"
     - "make install"
 
-cleanup:
-  stage: cleanup
-  when: on_failure
-  script:
-    - cat test-suite.log
-
 update:
-  stage: build
   only:
     - schedules
   script: 
