@@ -4,9 +4,9 @@ before_script:
 
 build:
   script:
-    - apt-get install -y --fix-missing git openssh-client wget gcc g++
-      automake cmake make libglib2.0 libglib2.0-dev libigraph0 libigraph0-dev
-      libevent-dev openssl libssl-dev
+    - apt-get install -y --fix-missing automake build-essential
+      libevent-dev libssl-dev zlib1g-dev
+      libseccomp-dev liblzma-dev libscrypt-dev
     - ./autogen.sh
     - ./configure --disable-asciidoc --enable-fatal-warnings
       --disable-silent-rules
