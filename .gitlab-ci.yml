@@ -4,7 +4,7 @@ before_script:
 
 build:
   script:
-    - apt-get install -y --fix-missing automake build-essential
+    - apt-get install -qy --fix-missing automake build-essential
       libevent-dev libssl-dev zlib1g-dev
       libseccomp-dev liblzma-dev libscrypt-dev
     - ./autogen.sh
