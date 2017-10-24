@@ -73,6 +73,8 @@ static const node_t *choose_random_entry_impl(cpath_build_state_t *state,
                                               dirinfo_type_t dirtype,
                                               int *n_options_out);
 static int num_bridges_usable(void);
+static void
+rewrite_node_address_for_bridge(const bridge_info_t *bridge, node_t *node);
 
 /** Return the list of entry guards, creating it if necessary. */
 const smartlist_t *
@@ -1987,6 +1989,7 @@ static void
 launch_direct_bridge_descriptor_fetch(bridge_info_t *bridge)
 {
   const or_options_t *options = get_options();
+  node_t *node = NULL;
 
   if (connection_get_by_type_addr_port_purpose(
       CONN_TYPE_DIR, &bridge->addr, bridge->port,
@@ -1998,6 +2001,12 @@ launch_direct_bridge_descriptor_fetch(bridge_info_t *bridge)
     log_warn(LD_APP, "Not using bridge at %s: it is in ExcludeNodes.",
              safe_str_client(fmt_and_decorate_addr(&bridge->addr)));
     return;
+  }
+
+  /* If we already have a node_t for this bridge, rewrite its address now. */
+  node = node_get_mutable_by_id(bridge->identity);
+  if (node) {
+    rewrite_node_address_for_bridge(bridge, node);
   }
 
   directory_initiate_command(&bridge->addr,
