@@ -75,6 +75,8 @@ static const node_t *choose_random_entry_impl(cpath_build_state_t *state,
                                               dirinfo_type_t dirtype,
                                               int *n_options_out);
 static int num_bridges_usable(void);
+static void
+rewrite_node_address_for_bridge(const bridge_info_t *bridge, node_t *node);
 
 /* Default number of entry guards in the case where the NumEntryGuards
  * consensus parameter is not set */
@@ -2163,6 +2165,12 @@ launch_direct_bridge_descriptor_fetch(bridge_info_t *bridge)
                "bridge, but that bridge is not reachable through our "
                "firewall.");
     return;
+  }
+
+  /* If we already have a node_t for this bridge, rewrite its address now. */
+  node_t *node = node_get_mutable_by_id(bridge->identity);
+  if (node) {
+    rewrite_node_address_for_bridge(bridge, node);
   }
 
   directory_initiate_command(&bridge->addr, bridge->port,
