@@ -1,0 +1,4 @@
+  o Minor features (config options and command line):
+    - Add --parse-config command line option to perform quick
+      torrc validation without binding ports and requiring system
+      privileges. Closes ticket 15015.
