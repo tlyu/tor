@@ -68,7 +68,10 @@ COMMAND-LINE OPTIONS
     Generate your keys and output your nickname and fingerprint.
 
 [[opt-verify-config]] **--verify-config**::
-    Verify the configuration file is valid.
+    Verify that configuration file is valid and compatible with current
+    configuration of your system. Note that this will attempt to bind
+    ports and may need root access. For preliminary torrc validation,
+    use **--parse-config**.
 
 [[opt-serviceinstall]] **--service install** [**--options** __command-line options__]::
     Install an instance of Tor as a Windows service, with the provided
@@ -121,6 +124,12 @@ COMMAND-LINE OPTIONS
    To use the generated files, you must copy them to the DataDirectory/keys
    directory of your Tor daemon, and make sure that they are owned by the
    user actually running the Tor daemon on your system.
+
+[[opt-parse-config]] **--parse-config**::
+    Perform preliminary torrc validity checks. This will attempt to parse
+    the torrc file and see if it looks valid. Note that this does not check
+    if configuration is valid in the context of entire system setup; for
+    this, use **--verify-config**.
 
 **--passphrase-fd** __FILEDES__::
     Filedescriptor to read the passphrase from.  Note that unlike with the
