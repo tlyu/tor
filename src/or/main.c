@@ -4137,6 +4137,7 @@ tor_run_main(const tor_main_configuration_t *tor_cfg)
     result = 0;
     break;
   case CMD_VERIFY_CONFIG:
+  case CMD_PARSE_CONFIG:
     if (quiet_level == 0)
       printf("Configuration was valid\n");
     result = 0;

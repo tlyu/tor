@@ -2393,6 +2393,7 @@ static const struct {
   { "--no-passphrase",        TAKES_NO_ARGUMENT },
   { "--passphrase-fd",        ARGUMENT_NECESSARY },
   { "--verify-config",        TAKES_NO_ARGUMENT },
+  { "--parse-config",         TAKES_NO_ARGUMENT },
   { "--ignore-missing-torrc", TAKES_NO_ARGUMENT },
   { "--quiet",                TAKES_NO_ARGUMENT },
   { "--hush",                 TAKES_NO_ARGUMENT },
@@ -5199,6 +5200,8 @@ options_init_from_torrc(int argc, char **argv)
       command_arg = p_index->value;
     } else if (!strcmp(p_index->key, "--verify-config")) {
       command = CMD_VERIFY_CONFIG;
+    } else if (!strcmp(p_index->key, "--parse-config")) {
+      command = CMD_PARSE_CONFIG;
     }
   }
 
@@ -5231,6 +5234,15 @@ options_init_from_torrc(int argc, char **argv)
 
   retval = options_init_from_string(cf_defaults, cf, command, command_arg,
                                     &errmsg);
+
+  if (command == CMD_PARSE_CONFIG) {
+    if (retval == SETOPT_ERR_PARSE) {
+      log_err(LD_CONFIG, "--parse-config failed: %s",
+              errmsg ? errmsg : "unknown error");
+      retval = -1;
+      goto err;
+    }
+  }
 
   if (retval < 0)
     goto err;
