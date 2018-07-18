@@ -284,3 +284,12 @@ show-distdir-testlog:
 	  cat $(distdir)/_build/sub/$(TEST_SUITE_LOG); \
 	else \
 	  cat $(distdir)/_build/$(TEST_SUITE_LOG); fi
+
+# This relies on some internal details of how automake implements
+# distcheck.  We check two directories because automake-1.15 changed
+# from $(distdir)/_build to $(distdir)/_build/sub.
+show-distdir-filecore:
+	@if test -d "$(distdir)/_build/sub"; then \
+	  file $(distdir)/_build/sub/core; \
+	else \
+	  file $(distdir)/_build/core; fi

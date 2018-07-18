@@ -169,6 +169,7 @@ after_failure:
   - if [[ "$DISTCHECK" == "" ]]; then cat test-suite.log; fi
   ## `make distcheck` puts it somewhere different.
   - if [[ "$DISTCHECK" != "" ]]; then make show-distdir-testlog; fi
+  - if [[ "$DISTCHECK" != "" ]]; then make show-distdir-filecore; fi
 
 after_success:
   ## If this build was one that produced coverage, upload it.
