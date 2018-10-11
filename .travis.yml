@@ -57,6 +57,8 @@ matrix:
     ## Check disable module dirauth with and without rust
     - env: MODULES_OPTIONS="--disable-module-dirauth" RUST_OPTIONS="--enable-rust" TOR_RUST_DEPENDENCIES=true HARDENING_OPTIONS=""
     - env: MODULES_OPTIONS="--disable-module-dirauth"
+    ## Test with chutney
+    - env: TEST_CHUTNEY="yes"
 
   ## Uncomment to allow the build to report success (with non-required
   ## sub-builds continuing to run) if all required sub-builds have
@@ -192,6 +194,8 @@ install:
   - if [[ "$RUST_OPTIONS" != "" ]]; then rustup --version; fi
   - if [[ "$RUST_OPTIONS" != "" ]]; then rustc --version; fi
   - if [[ "$RUST_OPTIONS" != "" ]]; then cargo --version; fi
+  ## Clone chutney if we'll need it
+  - if [[ "$TEST_CHUTNEY" != "" ]]; then git clone --depth 1 https://github.com/torproject/chutney.git; fi
 
 script:
   - ./autogen.sh
@@ -201,6 +205,7 @@ script:
   ## We run `make check` because that's what https://jenkins.torproject.org does.
   - if [[ "$DISTCHECK" == "" ]]; then make check; fi
   - if [[ "$DISTCHECK" != "" ]]; then make distcheck DISTCHECK_CONFIGURE_FLAGS="$CONFIGURE_FLAGS"; fi
+  - if [[ "$TEST_CHUTNEY" != "" ]]; then make CHUTNEY_PATH=`pwd`/chutney test-network; fi
 
 after_failure:
   ## configure will leave a log file with more details of config failures.
