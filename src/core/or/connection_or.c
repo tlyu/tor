@@ -78,6 +78,10 @@
 #include "lib/tls/tortls.h"
 #include "lib/tls/x509.h"
 
+#include "lib/subsys/subsys.h"
+#include "core/or/orconn_state.h"
+#include "core/or/orconn_sys.h"
+
 static int connection_tls_finish_handshake(or_connection_t *conn);
 static int connection_or_launch_v3_or_handshake(or_connection_t *conn);
 static int connection_or_process_cells_from_inbuf(or_connection_t *conn);
@@ -408,12 +412,16 @@ static void
 connection_or_change_state(or_connection_t *conn, uint8_t state)
 {
   uint8_t old_state;
+  orconn_state_msg msg;
 
   tor_assert(conn);
 
   old_state = conn->base_.state;
   conn->base_.state = state;
 
+  msg.gid = conn->base_.global_identifier;
+  msg.state = state;
+  orconn_state_publish(&msg);
   if (conn->chan)
     channel_tls_handle_state_change_on_orconn(conn->chan, conn,
                                               old_state, state);

@@ -163,4 +163,15 @@ extern int certs_cell_ed25519_disabled_for_testing;
 extern int testing__connection_or_pretend_TLSSECRET_is_supported;
 #endif
 
+/** Message for orconn state update */
+typedef struct {
+  uint64_t gid;                 /** connection's global ID */
+  uint8_t state;                /** new connection state */
+} orconn_state_msg;
+
+/** Receiver function pointer for OR subscribers  */
+typedef void (*orconn_state_rcvr)(orconn_state_msg *);
+
+void orconn_state_subscribe(orconn_state_rcvr fn);
+
 #endif /* !defined(TOR_CONNECTION_OR_H) */
