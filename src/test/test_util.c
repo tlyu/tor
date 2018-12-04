@@ -6,7 +6,7 @@
 #include "orconfig.h"
 #define COMPAT_PRIVATE
 #define COMPAT_TIME_PRIVATE
-#define CONTROL_PRIVATE
+#define CONTROL_PROTO_PRIVATE
 #define UTIL_PRIVATE
 #define UTIL_MALLOC_PRIVATE
 #define SOCKET_PRIVATE
@@ -15,7 +15,7 @@
 #include "core/or/or.h"
 #include "lib/buf/buffers.h"
 #include "app/config/config.h"
-#include "feature/control/control.h"
+#include "feature/control/control_proto.h"
 #include "feature/client/transports.h"
 #include "lib/crypt_ops/crypto_format.h"
 #include "lib/crypt_ops/crypto_rand.h"

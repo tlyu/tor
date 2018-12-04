@@ -60,6 +60,7 @@
 #include "feature/client/dnsserv.h"
 #include "feature/client/entrynodes.h"
 #include "feature/control/control.h"
+#include "feature/control/control_proto.h"
 #include "feature/control/fmt_serverstatus.h"
 #include "feature/control/getinfo_geoip.h"
 #include "feature/dircache/dirserv.h"
@@ -179,9 +180,6 @@ static uint8_t *authentication_cookie = NULL;
  */
 static smartlist_t *detached_onion_services = NULL;
 
-static void connection_printf_to_buf(control_connection_t *conn,
-                                     const char *format, ...)
-  CHECK_PRINTF(2,3);
 static void send_control_event_impl(uint16_t event,
                                     const char *format, va_list ap)
   CHECK_PRINTF(2,0);
@@ -472,205 +470,6 @@ control_per_second_events(void)
   control_event_circuit_cell_stats();
 }
 
-/** Append a NUL-terminated string <b>s</b> to the end of
- * <b>conn</b>-\>outbuf.
- */
-static inline void
-connection_write_str_to_buf(const char *s, control_connection_t *conn)
-{
-  size_t len = strlen(s);
-  connection_buf_add(s, len, TO_CONN(conn));
-}
-
-/** Given a <b>len</b>-character string in <b>data</b>, made of lines
- * terminated by CRLF, allocate a new string in *<b>out</b>, and copy the
- * contents of <b>data</b> into *<b>out</b>, adding a period before any period
- * that appears at the start of a line, and adding a period-CRLF line at
- * the end. Replace all LF characters sequences with CRLF.  Return the number
- * of bytes in *<b>out</b>.
- */
-STATIC size_t
-write_escaped_data(const char *data, size_t len, char **out)
-{
-  tor_assert(len < SIZE_MAX - 9);
-  size_t sz_out = len+8+1;
-  char *outp;
-  const char *start = data, *end;
-  size_t i;
-  int start_of_line;
-  for (i=0; i < len; ++i) {
-    if (data[i] == '\n') {
-      sz_out += 2; /* Maybe add a CR; maybe add a dot. */
-      if (sz_out >= SIZE_T_CEILING) {
-        log_warn(LD_BUG, "Input to write_escaped_data was too long");
-        *out = tor_strdup(".\r\n");
-        return 3;
-      }
-    }
-  }
-  *out = outp = tor_malloc(sz_out);
-  end = data+len;
-  start_of_line = 1;
-  while (data < end) {
-    if (*data == '\n') {
-      if (data > start && data[-1] != '\r')
-        *outp++ = '\r';
-      start_of_line = 1;
-    } else if (*data == '.') {
-      if (start_of_line) {
-        start_of_line = 0;
-        *outp++ = '.';
-      }
-    } else {
-      start_of_line = 0;
-    }
-    *outp++ = *data++;
-  }
-  if (outp < *out+2 || fast_memcmp(outp-2, "\r\n", 2)) {
-    *outp++ = '\r';
-    *outp++ = '\n';
-  }
-  *outp++ = '.';
-  *outp++ = '\r';
-  *outp++ = '\n';
-  *outp = '\0'; /* NUL-terminate just in case. */
-  tor_assert(outp >= *out);
-  tor_assert((size_t)(outp - *out) <= sz_out);
-  return outp - *out;
-}
-
-/** Given a <b>len</b>-character string in <b>data</b>, made of lines
- * terminated by CRLF, allocate a new string in *<b>out</b>, and copy
- * the contents of <b>data</b> into *<b>out</b>, removing any period
- * that appears at the start of a line, and replacing all CRLF sequences
- * with LF.   Return the number of
- * bytes in *<b>out</b>. */
-STATIC size_t
-read_escaped_data(const char *data, size_t len, char **out)
-{
-  char *outp;
-  const char *next;
-  const char *end;
-
-  *out = outp = tor_malloc(len+1);
-
-  end = data+len;
-
-  while (data < end) {
-    /* we're at the start of a line. */
-    if (*data == '.')
-      ++data;
-    next = memchr(data, '\n', end-data);
-    if (next) {
-      size_t n_to_copy = next-data;
-      /* Don't copy a CR that precedes this LF. */
-      if (n_to_copy && *(next-1) == '\r')
-        --n_to_copy;
-      memcpy(outp, data, n_to_copy);
-      outp += n_to_copy;
-      data = next+1; /* This will point at the start of the next line,
-                      * or the end of the string, or a period. */
-    } else {
-      memcpy(outp, data, end-data);
-      outp += (end-data);
-      *outp = '\0';
-      return outp - *out;
-    }
-    *outp++ = '\n';
-  }
-
-  *outp = '\0';
-  return outp - *out;
-}
-
-/** If the first <b>in_len_max</b> characters in <b>start</b> contain a
- * double-quoted string with escaped characters, return the length of that
- * string (as encoded, including quotes).  Otherwise return -1. */
-static inline int
-get_escaped_string_length(const char *start, size_t in_len_max,
-                          int *chars_out)
-{
-  const char *cp, *end;
-  int chars = 0;
-
-  if (*start != '\"')
-    return -1;
-
-  cp = start+1;
-  end = start+in_len_max;
-
-  /* Calculate length. */
-  while (1) {
-    if (cp >= end) {
-      return -1; /* Too long. */
-    } else if (*cp == '\\') {
-      if (++cp == end)
-        return -1; /* Can't escape EOS. */
-      ++cp;
-      ++chars;
-    } else if (*cp == '\"') {
-      break;
-    } else {
-      ++cp;
-      ++chars;
-    }
-  }
-  if (chars_out)
-    *chars_out = chars;
-  return (int)(cp - start+1);
-}
-
-/** As decode_escaped_string, but does not decode the string: copies the
- * entire thing, including quotation marks. */
-static const char *
-extract_escaped_string(const char *start, size_t in_len_max,
-                       char **out, size_t *out_len)
-{
-  int length = get_escaped_string_length(start, in_len_max, NULL);
-  if (length<0)
-    return NULL;
-  *out_len = length;
-  *out = tor_strndup(start, *out_len);
-  return start+length;
-}
-
-/** Given a pointer to a string starting at <b>start</b> containing
- * <b>in_len_max</b> characters, decode a string beginning with one double
- * quote, containing any number of non-quote characters or characters escaped
- * with a backslash, and ending with a final double quote.  Place the resulting
- * string (unquoted, unescaped) into a newly allocated string in *<b>out</b>;
- * store its length in <b>out_len</b>.  On success, return a pointer to the
- * character immediately following the escaped string.  On failure, return
- * NULL. */
-static const char *
-decode_escaped_string(const char *start, size_t in_len_max,
-                   char **out, size_t *out_len)
-{
-  const char *cp, *end;
-  char *outp;
-  int len, n_chars = 0;
-
-  len = get_escaped_string_length(start, in_len_max, &n_chars);
-  if (len<0)
-    return NULL;
-
-  end = start+len-1; /* Index of last quote. */
-  tor_assert(*end == '\"');
-  outp = *out = tor_malloc(len+1);
-  *out_len = n_chars;
-
-  cp = start+1;
-  while (cp < end) {
-    if (*cp == '\\')
-      ++cp;
-    *outp++ = *cp++;
-  }
-  *outp = '\0';
-  tor_assert((outp - *out) == (int)*out_len);
-
-  return end+1;
-}
-
 /** Create and add a new controller connection on <b>sock</b>.  If
  * <b>CC_LOCAL_FD_IS_OWNER</b> is set in <b>flags</b>, this Tor process should
  * exit when the connection closes.  If <b>CC_LOCAL_FD_IS_AUTHENTICATED</b>
@@ -712,29 +511,6 @@ control_connection_add_local_fd(tor_socket_t sock, unsigned flags)
   }
 
   return 0;
-}
-
-/** Acts like sprintf, but writes its formatted string to the end of
- * <b>conn</b>-\>outbuf. */
-static void
-connection_printf_to_buf(control_connection_t *conn, const char *format, ...)
-{
-  va_list ap;
-  char *buf = NULL;
-  int len;
-
-  va_start(ap,format);
-  len = tor_vasprintf(&buf, format, ap);
-  va_end(ap);
-
-  if (len < 0) {
-    log_err(LD_BUG, "Unable to format string for controller.");
-    tor_assert(0);
-  }
-
-  connection_buf_add(buf, (size_t)len, TO_CONN(conn));
-
-  tor_free(buf);
 }
 
 /** Write all of the open control ports to ControlPortWriteToFile */

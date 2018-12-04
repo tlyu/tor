@@ -319,10 +319,6 @@ void control_free_all(void);
 #define EVENT_MASK_ALL_              (EVENT_MASK_ABOVE_MIN_ \
                                       & EVENT_MASK_BELOW_MAX_)
 
-/* Used only by control.c and test.c */
-STATIC size_t write_escaped_data(const char *data, size_t len, char **out);
-STATIC size_t read_escaped_data(const char *data, size_t len, char **out);
-
 #ifdef TOR_UNIT_TESTS
 MOCK_DECL(STATIC void,
           send_control_event_string,(uint16_t event, const char *msg));
