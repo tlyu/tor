@@ -561,7 +561,7 @@ control_ports_write_to_file(void)
 static void
 send_control_done(control_connection_t *conn)
 {
-  connection_write_str_to_buf("250 OK\r\n", conn);
+  control_write_onereply(conn, 250, "OK");
 }
 
 /** Represents an event that's queued to be sent to one or more
@@ -883,7 +883,7 @@ control_setconf_helper(control_connection_t *conn, uint32_t len, char *body,
         body = (char*)extract_escaped_string(body, (len - (body-start)),
                                              &val, &val_len);
         if (!body) {
-          connection_write_str_to_buf("551 Couldn't parse string\r\n", conn);
+          control_write_onereply(conn, 551, "Couldn't parse string");
           SMARTLIST_FOREACH(entries, char *, cp, tor_free(cp));
           smartlist_free(entries);
           tor_free(key);
@@ -908,8 +908,7 @@ control_setconf_helper(control_connection_t *conn, uint32_t len, char *body,
 
   if (config_get_lines(config, &lines, 0) < 0) {
     log_warn(LD_CONTROL,"Controller gave us config lines we can't parse.");
-    connection_write_str_to_buf("551 Couldn't parse configuration\r\n",
-                                conn);
+    control_write_onereply(conn, 551, "Couldn't parse configuration");
     tor_free(config);
     return 0;
   }
@@ -1008,12 +1007,11 @@ handle_control_getconf(control_connection_t *conn, uint32_t body_len,
 
   if ((len = smartlist_len(unrecognized))) {
     for (i=0; i < len-1; ++i)
-      connection_printf_to_buf(conn,
-                               "552-Unrecognized configuration key \"%s\"\r\n",
-                               (char*)smartlist_get(unrecognized, i));
-    connection_printf_to_buf(conn,
-                             "552 Unrecognized configuration key \"%s\"\r\n",
-                             (char*)smartlist_get(unrecognized, len-1));
+      control_printf_midreply(conn, 552,
+                              "Unrecognized configuration key \"%s\"",
+                              (char*)smartlist_get(unrecognized, i));
+    control_printf_onereply(conn, 552, "Unrecognized configuration key \"%s\"",
+                            (char*)smartlist_get(unrecognized, len-1));
   } else if ((len = smartlist_len(answers))) {
     char *tmp = smartlist_get(answers, len-1);
     tor_assert(strlen(tmp)>4);
@@ -1021,7 +1019,7 @@ handle_control_getconf(control_connection_t *conn, uint32_t body_len,
     msg = smartlist_join_strings(answers, "", 0, &msg_len);
     connection_buf_add(msg, msg_len, TO_CONN(conn));
   } else {
-    connection_write_str_to_buf("250 OK\r\n", conn);
+    control_write_onereply(conn, 250, "OK");
   }
 
   SMARTLIST_FOREACH(answers, char *, cp, tor_free(cp));
@@ -1156,8 +1154,7 @@ handle_control_setevents(control_connection_t *conn, uint32_t len,
         }
 
         if (event_code == -1) {
-          connection_printf_to_buf(conn, "552 Unrecognized event \"%s\"\r\n",
-                                   ev);
+          control_printf_onereply(conn, 552, "Unrecognized event \"%s\"", ev);
           SMARTLIST_FOREACH(events, char *, e, tor_free(e));
           smartlist_free(events);
           return 0;
@@ -1248,18 +1245,18 @@ handle_control_authenticate(control_connection_t *conn, uint32_t len,
     password = tor_malloc(password_len + 1);
     if (base16_decode(password, password_len+1, body, i)
                       != (int) password_len) {
-      connection_write_str_to_buf(
-            "551 Invalid hexadecimal encoding.  Maybe you tried a plain text "
+      control_write_onereply(conn, 551,
+            "Invalid hexadecimal encoding.  Maybe you tried a plain text "
             "password?  If so, the standard requires that you put it in "
-            "double quotes.\r\n", conn);
+            "double quotes.");
       connection_mark_for_close(TO_CONN(conn));
       tor_free(password);
       return 0;
     }
   } else {
     if (!decode_escaped_string(body, len, &password, &password_len)) {
-      connection_write_str_to_buf("551 Invalid quoted string.  You need "
-            "to put the password in double quotes.\r\n", conn);
+      control_write_onereply(conn, 551, "Invalid quoted string.  You need "
+                             "to put the password in double quotes.");
       connection_mark_for_close(TO_CONN(conn));
       return 0;
     }
@@ -1392,7 +1389,7 @@ handle_control_authenticate(control_connection_t *conn, uint32_t len,
 
  err:
   tor_free(password);
-  connection_printf_to_buf(conn, "515 Authentication failed: %s\r\n", errstr);
+  control_printf_onereply(conn, 515, "Authentication failed: %s", errstr);
   connection_mark_for_close(TO_CONN(conn));
   if (sl) { /* clean up */
     SMARTLIST_FOREACH(sl, char *, str, tor_free(str));
@@ -1423,8 +1420,8 @@ handle_control_saveconf(control_connection_t *conn, uint32_t len,
   int force = !strcmpstart(body, "FORCE");
   const or_options_t *options = get_options();
   if ((!force && options->IncludeUsed) || options_save_current() < 0) {
-    connection_write_str_to_buf(
-      "551 Unable to write configuration to disk.\r\n", conn);
+    control_write_onereply(conn, 551,
+                           "Unable to write configuration to disk.");
   } else {
     send_control_done(conn);
   }
@@ -1481,8 +1478,7 @@ handle_control_signal(control_connection_t *conn, uint32_t len,
   }
 
   if (sig < 0)
-    connection_printf_to_buf(conn, "552 Unrecognized signal code \"%s\"\r\n",
-                             s);
+    control_printf_onereply(conn, 552, "Unrecognized signal code \"%s\"", s);
   tor_free(s);
   if (sig < 0)
     return 0;
@@ -3255,7 +3251,7 @@ handle_control_getinfo(control_connection_t *conn, uint32_t len,
     if (handle_getinfo_helper(conn, q, &ans, &errmsg) < 0) {
       if (!errmsg)
         errmsg = "Internal error";
-      connection_printf_to_buf(conn, "551 %s\r\n", errmsg);
+      control_write_onereply(conn, 551, errmsg);
       goto done;
     }
     if (!ans) {
@@ -3272,13 +3268,11 @@ handle_control_getinfo(control_connection_t *conn, uint32_t len,
   if (smartlist_len(unrecognized)) {
     /* control-spec section 2.3, mid-reply '-' or end of reply ' ' */
     for (i=0; i < smartlist_len(unrecognized)-1; ++i)
-      connection_printf_to_buf(conn,
-                               "552-%s\r\n",
-                               (char *)smartlist_get(unrecognized, i));
-
-    connection_printf_to_buf(conn,
-                             "552 %s\r\n",
+      control_write_midreply(conn, 552,
                              (char *)smartlist_get(unrecognized, i));
+
+    control_write_onereply(conn, 552,
+                           (char *)smartlist_get(unrecognized, i));
     goto done;
   }
 
@@ -3286,19 +3280,13 @@ handle_control_getinfo(control_connection_t *conn, uint32_t len,
     char *k = smartlist_get(answers, i);
     char *v = smartlist_get(answers, i+1);
     if (!strchr(v, '\n') && !strchr(v, '\r')) {
-      connection_printf_to_buf(conn, "250-%s=", k);
-      connection_write_str_to_buf(v, conn);
-      connection_write_str_to_buf("\r\n", conn);
+      control_printf_midreply(conn, 250, "%s=%s", k, v);
     } else {
-      char *esc = NULL;
-      size_t esc_len;
-      esc_len = write_escaped_data(v, strlen(v), &esc);
-      connection_printf_to_buf(conn, "250+%s=\r\n", k);
-      connection_buf_add(esc, esc_len, TO_CONN(conn));
-      tor_free(esc);
+      control_printf_datareply(conn, 250, "%s=", k);
+      control_write_data(conn, v);
     }
   }
-  connection_write_str_to_buf("250 OK\r\n", conn);
+  control_write_onereply(conn, 250, "OK");
 
  done:
   SMARTLIST_FOREACH(answers, char *, cp, tor_free(cp));
@@ -3339,10 +3327,10 @@ getargs_helper(const char *command, control_connection_t *conn,
   smartlist_split_string(args, body, " ",
                          SPLIT_SKIP_SPACE|SPLIT_IGNORE_BLANK, 0);
   if (smartlist_len(args) < min_args) {
-    connection_printf_to_buf(conn, "512 Missing argument to %s\r\n",command);
+    control_printf_onereply(conn, 512, "Missing argument to %s", command);
     goto err;
   } else if (max_args >= 0 && smartlist_len(args) > max_args) {
-    connection_printf_to_buf(conn, "512 Too many arguments to %s\r\n",command);
+    control_printf_onereply(conn, 512, "Too many arguments to %s", command);
     goto err;
   }
   return args;
@@ -3404,7 +3392,7 @@ handle_control_extendcircuit(control_connection_t *conn, uint32_t len,
     if (purp) {
       intended_purpose = circuit_purpose_from_string(purp);
       if (intended_purpose == CIRCUIT_PURPOSE_UNKNOWN) {
-        connection_printf_to_buf(conn, "552 Unknown purpose \"%s\"\r\n", purp);
+        control_printf_onereply(conn, 552, "Unknown purpose \"%s\"", purp);
         SMARTLIST_FOREACH(args, char *, cp, tor_free(cp));
         smartlist_free(args);
         goto done;
@@ -3416,10 +3404,10 @@ handle_control_extendcircuit(control_connection_t *conn, uint32_t len,
       // "EXTENDCIRCUIT 0" || EXTENDCIRCUIT 0 foo=bar"
       circ = circuit_launch(intended_purpose, CIRCLAUNCH_NEED_CAPACITY);
       if (!circ) {
-        connection_write_str_to_buf("551 Couldn't start circuit\r\n", conn);
+        control_write_onereply(conn, 551, "Couldn't start circuit");
       } else {
-        connection_printf_to_buf(conn, "250 EXTENDED %lu\r\n",
-                  (unsigned long)circ->global_identifier);
+        control_printf_onereply(conn, 250, "EXTENDED %lu",
+                                (unsigned long)circ->global_identifier);
       }
       SMARTLIST_FOREACH(args, char *, cp, tor_free(cp));
       smartlist_free(args);
@@ -3430,16 +3418,15 @@ handle_control_extendcircuit(control_connection_t *conn, uint32_t len,
   }
 
   if (!zero_circ && !(circ = get_circ(smartlist_get(args,0)))) {
-    connection_printf_to_buf(conn, "552 Unknown circuit \"%s\"\r\n",
-                             (char*)smartlist_get(args, 0));
+    control_printf_onereply(conn, 552, "Unknown circuit \"%s\"",
+                            (char*)smartlist_get(args, 0));
     SMARTLIST_FOREACH(args, char *, cp, tor_free(cp));
     smartlist_free(args);
     goto done;
   }
 
   if (smartlist_len(args) < 2) {
-    connection_printf_to_buf(conn,
-                             "512 syntax error: not enough arguments.\r\n");
+    control_write_onereply(conn, 512, "syntax error: not enough arguments.");
     SMARTLIST_FOREACH(args, char *, cp, tor_free(cp));
     smartlist_free(args);
     goto done;
@@ -3455,18 +3442,18 @@ handle_control_extendcircuit(control_connection_t *conn, uint32_t len,
   SMARTLIST_FOREACH_BEGIN(router_nicknames, const char *, n) {
     const node_t *node = node_get_by_nickname(n, 0);
     if (!node) {
-      connection_printf_to_buf(conn, "552 No such router \"%s\"\r\n", n);
+      control_printf_onereply(conn, 552, "No such router \"%s\"", n);
       goto done;
     }
     if (!node_has_preferred_descriptor(node, first_node)) {
-      connection_printf_to_buf(conn, "552 No descriptor for \"%s\"\r\n", n);
+      control_printf_onereply(conn, 552, "No descriptor for \"%s\"", n);
       goto done;
     }
     smartlist_add(nodes, (void*)node);
     first_node = 0;
   } SMARTLIST_FOREACH_END(n);
   if (!smartlist_len(nodes)) {
-    connection_write_str_to_buf("512 No router names provided\r\n", conn);
+    control_write_onereply(conn, 512, "No router names provided");
     goto done;
   }
 
@@ -3488,7 +3475,7 @@ handle_control_extendcircuit(control_connection_t *conn, uint32_t len,
                "addresses that are allowed by the firewall configuration; "
                "circuit marked for closing.");
       circuit_mark_for_close(TO_CIRCUIT(circ), -END_CIRC_REASON_CONNECTFAILED);
-      connection_write_str_to_buf("551 Couldn't start circuit\r\n", conn);
+      control_write_onereply(conn, 551, "Couldn't start circuit");
       goto done;
     }
     circuit_append_new_exit(circ, info);
@@ -3504,7 +3491,7 @@ handle_control_extendcircuit(control_connection_t *conn, uint32_t len,
     int err_reason = 0;
     if ((err_reason = circuit_handle_first_hop(circ)) < 0) {
       circuit_mark_for_close(TO_CIRCUIT(circ), -err_reason);
-      connection_write_str_to_buf("551 Couldn't start circuit\r\n", conn);
+      control_write_onereply(conn, 551, "Couldn't start circuit");
       goto done;
     }
   } else {
@@ -3516,14 +3503,14 @@ handle_control_extendcircuit(control_connection_t *conn, uint32_t len,
         log_info(LD_CONTROL,
                  "send_next_onion_skin failed; circuit marked for closing.");
         circuit_mark_for_close(TO_CIRCUIT(circ), -err_reason);
-        connection_write_str_to_buf("551 Couldn't send onion skin\r\n", conn);
+        control_write_onereply(conn, 551, "Couldn't send onion skin");
         goto done;
       }
     }
   }
 
-  connection_printf_to_buf(conn, "250 EXTENDED %lu\r\n",
-                             (unsigned long)circ->global_identifier);
+  control_printf_onereply(conn, 250, "EXTENDED %lu",
+                          (unsigned long)circ->global_identifier);
   if (zero_circ) /* send a 'launched' event, for completeness */
     control_event_circuit_status(circ, CIRC_EVENT_LAUNCHED, 0);
  done:
@@ -3549,26 +3536,26 @@ handle_control_setcircuitpurpose(control_connection_t *conn,
     goto done;
 
   if (!(circ = get_circ(smartlist_get(args,0)))) {
-    connection_printf_to_buf(conn, "552 Unknown circuit \"%s\"\r\n",
-                             (char*)smartlist_get(args, 0));
+    control_printf_onereply(conn, 552, "Unknown circuit \"%s\"",
+                            (char*)smartlist_get(args, 0));
     goto done;
   }
 
   {
     const char *purp = find_element_starting_with(args,1,"PURPOSE=");
     if (!purp) {
-      connection_write_str_to_buf("552 No purpose given\r\n", conn);
+      control_write_onereply(conn, 552, "No purpose given");
       goto done;
     }
     new_purpose = circuit_purpose_from_string(purp);
     if (new_purpose == CIRCUIT_PURPOSE_UNKNOWN) {
-      connection_printf_to_buf(conn, "552 Unknown purpose \"%s\"\r\n", purp);
+      control_printf_onereply(conn, 552, "Unknown purpose \"%s\"", purp);
       goto done;
     }
   }
 
   circuit_change_purpose(TO_CIRCUIT(circ), new_purpose);
-  connection_write_str_to_buf("250 OK\r\n", conn);
+  control_write_onereply(conn, 250, "OK");
 
  done:
   if (args) {
@@ -3599,11 +3586,11 @@ handle_control_attachstream(control_connection_t *conn, uint32_t len,
   zero_circ = !strcmp("0", (char*)smartlist_get(args,1));
 
   if (!(ap_conn = get_stream(smartlist_get(args, 0)))) {
-    connection_printf_to_buf(conn, "552 Unknown stream \"%s\"\r\n",
-                             (char*)smartlist_get(args, 0));
+    control_printf_onereply(conn, 552, "Unknown stream \"%s\"",
+                            (char*)smartlist_get(args, 0));
   } else if (!zero_circ && !(circ = get_circ(smartlist_get(args, 1)))) {
-    connection_printf_to_buf(conn, "552 Unknown circuit \"%s\"\r\n",
-                             (char*)smartlist_get(args, 1));
+    control_printf_onereply(conn, 552, "Unknown circuit \"%s\"",
+                            (char*)smartlist_get(args, 1));
   } else if (circ) {
     const char *hopstring = find_element_starting_with(args,2,"HOP=");
     if (hopstring) {
@@ -3611,7 +3598,7 @@ handle_control_attachstream(control_connection_t *conn, uint32_t len,
       hop = (int) tor_parse_ulong(hopstring, 10, 0, INT_MAX,
                                   &hop_line_ok, NULL);
       if (!hop_line_ok) { /* broken hop line */
-        connection_printf_to_buf(conn, "552 Bad value hop=%s\r\n", hopstring);
+        control_printf_onereply(conn, 552, "Bad value hop=%s", hopstring);
       }
     }
   }
@@ -3623,9 +3610,8 @@ handle_control_attachstream(control_connection_t *conn, uint32_t len,
   if (ENTRY_TO_CONN(ap_conn)->state != AP_CONN_STATE_CONTROLLER_WAIT &&
       ENTRY_TO_CONN(ap_conn)->state != AP_CONN_STATE_CONNECT_WAIT &&
       ENTRY_TO_CONN(ap_conn)->state != AP_CONN_STATE_RESOLVE_WAIT) {
-    connection_write_str_to_buf(
-                    "555 Connection is not managed by controller.\r\n",
-                    conn);
+    control_write_onereply(conn, 555,
+                           "Connection is not managed by controller.");
     return 0;
   }
 
@@ -3644,15 +3630,14 @@ handle_control_attachstream(control_connection_t *conn, uint32_t len,
   }
 
   if (circ && (circ->base_.state != CIRCUIT_STATE_OPEN)) {
-    connection_write_str_to_buf(
-                    "551 Can't attach stream to non-open origin circuit\r\n",
-                    conn);
+    control_write_onereply(conn, 551,
+                           "Can't attach stream to non-open origin circuit");
     return 0;
   }
   /* Is this a single hop circuit? */
   if (circ && (circuit_get_cpath_len(circ)<2 || hop==1)) {
-    connection_write_str_to_buf(
-               "551 Can't attach stream to this one-hop circuit.\r\n", conn);
+    control_write_onereply(conn, 551,
+                           "Can't attach stream to this one-hop circuit.");
     return 0;
   }
 
@@ -3660,13 +3645,12 @@ handle_control_attachstream(control_connection_t *conn, uint32_t len,
     /* find this hop in the circuit, and set cpath */
     cpath = circuit_get_cpath_hop(circ, hop);
     if (!cpath) {
-      connection_printf_to_buf(conn,
-                               "551 Circuit doesn't have %d hops.\r\n", hop);
+      control_printf_onereply(conn, 551, "Circuit doesn't have %d hops.", hop);
       return 0;
     }
   }
   if (connection_ap_handshake_rewrite_and_attach(ap_conn, circ, cpath) < 0) {
-    connection_write_str_to_buf("551 Unable to attach stream\r\n", conn);
+    control_write_onereply(conn, 551, "Unable to attach stream");
     return 0;
   }
   send_control_done(conn);
@@ -3687,7 +3671,7 @@ handle_control_postdescriptor(control_connection_t *conn, uint32_t len,
   const char *cp = memchr(body, '\n', len);
 
   if (cp == NULL) {
-    connection_printf_to_buf(conn, "251 Empty body\r\n");
+    control_write_onereply(conn, 251, "Empty body");
     return 0;
   }
   ++cp;
@@ -3701,8 +3685,7 @@ handle_control_postdescriptor(control_connection_t *conn, uint32_t len,
       option += strlen("purpose=");
       purpose = router_purpose_from_string(option);
       if (purpose == ROUTER_PURPOSE_UNKNOWN) {
-        connection_printf_to_buf(conn, "552 Unknown purpose \"%s\"\r\n",
-                                 option);
+        control_printf_onereply(conn, 552, "Unknown purpose \"%s\"", option);
         goto done;
       }
     } else if (!strcasecmpstart(option, "cache=")) {
@@ -3712,13 +3695,14 @@ handle_control_postdescriptor(control_connection_t *conn, uint32_t len,
       else if (!strcasecmp(option, "yes"))
         cache = 1;
       else {
-        connection_printf_to_buf(conn, "552 Unknown cache request \"%s\"\r\n",
-                                 option);
+        control_printf_onereply(conn, 552,
+                               "Unknown cache request \"%s\"", option);
         goto done;
       }
     } else { /* unrecognized argument? */
-      connection_printf_to_buf(conn,
-        "512 Unexpected argument \"%s\" to postdescriptor\r\n", option);
+      control_printf_onereply(conn, 512,
+                              "Unexpected argument \"%s\" to postdescriptor",
+                              option);
       goto done;
     }
   } SMARTLIST_FOREACH_END(option);
@@ -3728,11 +3712,11 @@ handle_control_postdescriptor(control_connection_t *conn, uint32_t len,
   switch (router_load_single_router(desc, purpose, cache, &msg)) {
   case -1:
     if (!msg) msg = "Could not parse descriptor";
-    connection_printf_to_buf(conn, "554 %s\r\n", msg);
+    control_write_onereply(conn, 554, msg);
     break;
   case 0:
     if (!msg) msg = "Descriptor not added";
-    connection_printf_to_buf(conn, "251 %s\r\n",msg);
+    control_write_onereply(conn, 251, msg);
     break;
   case 1:
     send_control_done(conn);
@@ -3765,7 +3749,7 @@ handle_control_redirectstream(control_connection_t *conn, uint32_t len,
 
   if (!(ap_conn = get_stream(smartlist_get(args, 0)))
            || !ap_conn->socks_request) {
-    connection_printf_to_buf(conn, "552 Unknown stream \"%s\"\r\n",
+    control_printf_onereply(conn, 552, "Unknown stream \"%s\"",
                              (char*)smartlist_get(args, 0));
   } else {
     int ok = 1;
@@ -3774,8 +3758,8 @@ handle_control_redirectstream(control_connection_t *conn, uint32_t len,
                                             10, 1, 65535, &ok, NULL);
     }
     if (!ok) {
-      connection_printf_to_buf(conn, "512 Cannot parse port \"%s\"\r\n",
-                               (char*)smartlist_get(args, 2));
+      control_printf_onereply(conn, 512, "Cannot parse port \"%s\"",
+                             (char*)smartlist_get(args, 2));
     } else {
       new_addr = tor_strdup(smartlist_get(args, 1));
     }
@@ -3812,14 +3796,14 @@ handle_control_closestream(control_connection_t *conn, uint32_t len,
     return 0;
 
   else if (!(ap_conn = get_stream(smartlist_get(args, 0))))
-    connection_printf_to_buf(conn, "552 Unknown stream \"%s\"\r\n",
-                             (char*)smartlist_get(args, 0));
+    control_printf_onereply(conn, 552, "Unknown stream \"%s\"",
+                            (char*)smartlist_get(args, 0));
   else {
     reason = (uint8_t) tor_parse_ulong(smartlist_get(args,1), 10, 0, 255,
                                        &ok, NULL);
     if (!ok) {
-      connection_printf_to_buf(conn, "552 Unrecognized reason \"%s\"\r\n",
-                               (char*)smartlist_get(args, 1));
+      control_printf_onereply(conn, 552, "Unrecognized reason \"%s\"",
+                              (char*)smartlist_get(args, 1));
       ap_conn = NULL;
     }
   }
@@ -3849,8 +3833,8 @@ handle_control_closecircuit(control_connection_t *conn, uint32_t len,
     return 0;
 
   if (!(circ=get_circ(smartlist_get(args, 0))))
-    connection_printf_to_buf(conn, "552 Unknown circuit \"%s\"\r\n",
-                             (char*)smartlist_get(args, 0));
+    control_printf_onereply(conn, 552, "Unknown circuit \"%s\"",
+                            (char*)smartlist_get(args, 0));
   else {
     int i;
     for (i=1; i < smartlist_len(args); ++i) {
@@ -3939,8 +3923,7 @@ handle_control_protocolinfo(control_connection_t *conn, uint32_t len,
       }
     });
   if (bad_arg) {
-    connection_printf_to_buf(conn, "513 No such version %s\r\n",
-                             escaped(bad_arg));
+    control_printf_onereply(conn, 513, "No such version %s", escaped(bad_arg));
     /* Don't tolerate bad arguments when not authenticated. */
     if (!STATE_IS_OPEN(TO_CONN(conn)->state))
       connection_mark_for_close(TO_CONN(conn));
@@ -4007,15 +3990,14 @@ handle_control_authchallenge(control_connection_t *conn, uint32_t len,
   if (!strcasecmpstart(cp, "SAFECOOKIE")) {
     cp += strlen("SAFECOOKIE");
   } else {
-    connection_write_str_to_buf("513 AUTHCHALLENGE only supports SAFECOOKIE "
-                                "authentication\r\n", conn);
+    control_write_onereply(conn, 513, "AUTHCHALLENGE only supports SAFECOOKIE "
+                           "authentication");
     connection_mark_for_close(TO_CONN(conn));
     return -1;
   }
 
   if (!authentication_cookie_is_set) {
-    connection_write_str_to_buf("515 Cookie authentication is disabled\r\n",
-                                conn);
+    control_write_onereply(conn, 515, "Cookie authentication is disabled\r\n");
     connection_mark_for_close(TO_CONN(conn));
     return -1;
   }
@@ -4026,8 +4008,7 @@ handle_control_authchallenge(control_connection_t *conn, uint32_t len,
       decode_escaped_string(cp, len - (cp - body),
                             &client_nonce, &client_nonce_len);
     if (newcp == NULL) {
-      connection_write_str_to_buf("513 Invalid quoted client nonce\r\n",
-                                  conn);
+      control_write_onereply(conn, 513, "Invalid quoted client nonce");
       connection_mark_for_close(TO_CONN(conn));
       return -1;
     }
@@ -4041,8 +4022,7 @@ handle_control_authchallenge(control_connection_t *conn, uint32_t len,
     if (base16_decode(client_nonce, client_nonce_len,
                       cp, client_nonce_encoded_len)
                       != (int) client_nonce_len) {
-      connection_write_str_to_buf("513 Invalid base16 client nonce\r\n",
-                                  conn);
+      control_write_onereply(conn, 513, "Invalid base16 client nonce");
       connection_mark_for_close(TO_CONN(conn));
       tor_free(client_nonce);
       return -1;
@@ -4054,8 +4034,7 @@ handle_control_authchallenge(control_connection_t *conn, uint32_t len,
   cp += strspn(cp, " \t\n\r");
   if (*cp != '\0' ||
       cp != body + len) {
-    connection_write_str_to_buf("513 Junk at end of AUTHCHALLENGE command\r\n",
-                                conn);
+    control_write_onereply(conn, 513, "Junk at end of AUTHCHALLENGE command");
     connection_mark_for_close(TO_CONN(conn));
     tor_free(client_nonce);
     return -1;
@@ -4099,11 +4078,10 @@ handle_control_authchallenge(control_connection_t *conn, uint32_t len,
   base16_encode(server_nonce_encoded, sizeof(server_nonce_encoded),
                 server_nonce, sizeof(server_nonce));
 
-  connection_printf_to_buf(conn,
-                           "250 AUTHCHALLENGE SERVERHASH=%s "
-                           "SERVERNONCE=%s\r\n",
-                           server_hash_encoded,
-                           server_nonce_encoded);
+  control_printf_onereply(conn, 250, "AUTHCHALLENGE SERVERHASH=%s "
+                          "SERVERNONCE=%s",
+                          server_hash_encoded,
+                          server_nonce_encoded);
 
   tor_free(client_nonce);
   return 0;
@@ -4128,8 +4106,7 @@ handle_control_usefeature(control_connection_t *conn,
       else if (!strcasecmp(arg, "EXTENDED_EVENTS"))
         ;
       else {
-        connection_printf_to_buf(conn, "552 Unrecognized feature \"%s\"\r\n",
-                                 arg);
+        control_printf_onereply(conn, 552, "Unrecognized feature \"%s\"", arg);
         bad = 1;
         break;
       }
@@ -4165,7 +4142,7 @@ handle_control_dropguards(control_connection_t *conn,
   }
 
   if (smartlist_len(args)) {
-    connection_printf_to_buf(conn, "512 Too many arguments to DROPGUARDS\r\n");
+    control_write_onereply(conn, 512, "Too many arguments to DROPGUARDS");
   } else {
     remove_all_entry_guards();
     send_control_done(conn);
@@ -4209,8 +4186,7 @@ handle_control_hsfetch(control_connection_t *conn, uint32_t len,
      * of the id. */
     desc_id = digest;
   } else {
-    connection_printf_to_buf(conn, "513 Invalid argument \"%s\"\r\n",
-                             arg1);
+    control_printf_onereply(conn, 513, "Invalid argument \"%s\"", arg1);
     goto done;
   }
 
@@ -4227,8 +4203,7 @@ handle_control_hsfetch(control_connection_t *conn, uint32_t len,
       server = arg + strlen(opt_server);
       node = node_get_by_hex_id(server, 0);
       if (!node) {
-        connection_printf_to_buf(conn, "552 Server \"%s\" not found\r\n",
-                                 server);
+        control_printf_onereply(conn, 552, "Server \"%s\" not found", server);
         goto done;
       }
       if (!hsdirs) {
@@ -4238,8 +4213,7 @@ handle_control_hsfetch(control_connection_t *conn, uint32_t len,
       /* Valid server, add it to our local list. */
       smartlist_add(hsdirs, node->rs);
     } else {
-      connection_printf_to_buf(conn, "513 Unexpected argument \"%s\"\r\n",
-                               arg);
+      control_printf_onereply(conn, 513, "Unexpected argument \"%s\"", arg);
       goto done;
     }
   }
@@ -4247,15 +4221,14 @@ handle_control_hsfetch(control_connection_t *conn, uint32_t len,
   rend_query = rend_data_client_create(hsaddress, desc_id, NULL,
                                        REND_NO_AUTH);
   if (rend_query == NULL) {
-    connection_printf_to_buf(conn, "551 Error creating the HS query\r\n");
+    control_write_onereply(conn, 551, "Error creating the HS query");
     goto done;
   }
 
   /* Using a descriptor ID, we force the user to provide at least one
    * hsdir server using the SERVER= option. */
   if (desc_id && (!hsdirs || !smartlist_len(hsdirs))) {
-      connection_printf_to_buf(conn, "512 %s option is required\r\n",
-                               opt_server);
+    control_printf_onereply(conn, 512, "%s option is required", opt_server);
       goto done;
   }
 
@@ -4294,7 +4267,7 @@ handle_control_hspost(control_connection_t *conn,
 
   char *cp = memchr(body, '\n', len);
   if (cp == NULL) {
-    connection_printf_to_buf(conn, "251 Empty body\r\n");
+    control_write_onereply(conn, 251, "Empty body");
     return 0;
   }
   char *argline = tor_strndup(body, cp-body);
@@ -4318,8 +4291,8 @@ handle_control_hspost(control_connection_t *conn,
         const node_t *node = node_get_by_hex_id(server, 0);
 
         if (!node || !node->rs) {
-          connection_printf_to_buf(conn, "552 Server \"%s\" not found\r\n",
-                                   server);
+          control_printf_onereply(conn, 552, "Server \"%s\" not found",
+                                  server);
           goto done;
         }
         /* Valid server, add it to our local list. */
@@ -4329,13 +4302,12 @@ handle_control_hspost(control_connection_t *conn,
       } else if (!strcasecmpstart(arg, opt_hsaddress)) {
         const char *address = arg + strlen(opt_hsaddress);
         if (!hs_address_is_valid(address)) {
-          connection_printf_to_buf(conn, "512 Malformed onion address\r\n");
+          control_write_onereply(conn, 512, "Malformed onion address");
           goto done;
         }
         onion_address = address;
       } else {
-        connection_printf_to_buf(conn, "512 Unexpected argument \"%s\"\r\n",
-                                 arg);
+        control_printf_onereply(conn, 512, "Unexpected argument \"%s\"", arg);
         goto done;
       }
     } SMARTLIST_FOREACH_END(arg);
@@ -4346,7 +4318,7 @@ handle_control_hspost(control_connection_t *conn,
     char *desc_str = NULL;
     read_escaped_data(encoded_desc, encoded_desc_len, &desc_str);
     if (hs_control_hspost_command(desc_str, onion_address, hs_dirs) < 0) {
-      connection_printf_to_buf(conn, "554 Invalid descriptor\r\n");
+      control_write_onereply(conn, 554, "Invalid descriptor");
     } else {
       send_control_done(conn);
     }
@@ -4387,7 +4359,7 @@ handle_control_hspost(control_connection_t *conn,
 
     rend_service_descriptor_free(parsed);
   } else {
-    connection_printf_to_buf(conn, "554 Invalid descriptor\r\n");
+    control_write_onereply(conn, 554, "Invalid descriptor");
   }
 
   tor_free(intro_content);
@@ -4489,7 +4461,7 @@ handle_control_add_onion(control_connection_t *conn,
       rend_service_port_config_t *cfg =
           rend_service_parse_port_config(port_str, ",", NULL);
       if (!cfg) {
-        connection_printf_to_buf(conn, "512 Invalid VIRTPORT/TARGET\r\n");
+        control_write_onereply(conn, 512, "Invalid VIRTPORT/TARGET");
         goto out;
       }
       smartlist_add(port_cfgs, cfg);
@@ -4499,7 +4471,7 @@ handle_control_add_onion(control_connection_t *conn,
       int ok = 0;
       max_streams = (int)tor_parse_long(max_s_str, 10, 0, 65535, &ok, NULL);
       if (!ok) {
-        connection_printf_to_buf(conn, "512 Invalid MaxStreams\r\n");
+        control_write_onereply(conn, 512, "Invalid MaxStreams");
         goto out;
       }
     } else if (!strcasecmpstart(arg, flags_prefix)) {
@@ -4528,7 +4500,7 @@ handle_control_add_onion(control_connection_t *conn,
       smartlist_split_string(flags, arg + strlen(flags_prefix), ",",
                              SPLIT_IGNORE_BLANK, 0);
       if (smartlist_len(flags) < 1) {
-        connection_printf_to_buf(conn, "512 Invalid 'Flags' argument\r\n");
+        control_write_onereply(conn, 512, "Invalid 'Flags' argument");
         bad = 1;
       }
       SMARTLIST_FOREACH_BEGIN(flags, const char *, flag)
@@ -4544,9 +4516,8 @@ handle_control_add_onion(control_connection_t *conn,
         } else if (!strcasecmp(flag, non_anonymous_flag)) {
           non_anonymous = 1;
         } else {
-          connection_printf_to_buf(conn,
-                                   "512 Invalid 'Flags' argument: %s\r\n",
-                                   escaped(flag));
+          control_printf_onereply(conn, 512, "Invalid 'Flags' argument: %s",
+                                  escaped(flag));
           bad = 1;
           break;
         }
@@ -4578,8 +4549,7 @@ handle_control_add_onion(control_connection_t *conn,
           }
         } SMARTLIST_FOREACH_END(ac);
         if (bad) {
-          connection_printf_to_buf(conn,
-                                   "512 Duplicate name in ClientAuth\r\n");
+          control_write_onereply(conn, 512, "Duplicate name in ClientAuth");
           rend_authorized_client_free(client);
           goto out;
         }
@@ -4592,24 +4562,24 @@ handle_control_add_onion(control_connection_t *conn,
         smartlist_add(auth_created_clients, client);
       }
     } else {
-      connection_printf_to_buf(conn, "513 Invalid argument\r\n");
+      control_write_onereply(conn, 513, "Invalid argument");
       goto out;
     }
   }
   if (smartlist_len(port_cfgs) == 0) {
-    connection_printf_to_buf(conn, "512 Missing 'Port' argument\r\n");
+    control_write_onereply(conn, 512, "Missing 'Port' argument");
     goto out;
   } else if (auth_type == REND_NO_AUTH && auth_clients != NULL) {
-    connection_printf_to_buf(conn, "512 No auth type specified\r\n");
+    control_write_onereply(conn, 512, "No auth type specified");
     goto out;
   } else if (auth_type != REND_NO_AUTH && auth_clients == NULL) {
-    connection_printf_to_buf(conn, "512 No auth clients specified\r\n");
+    control_write_onereply(conn, 512, "No auth clients specified");
     goto out;
   } else if ((auth_type == REND_BASIC_AUTH &&
               smartlist_len(auth_clients) > 512) ||
              (auth_type == REND_STEALTH_AUTH &&
               smartlist_len(auth_clients) > 16)) {
-    connection_printf_to_buf(conn, "512 Too many auth clients\r\n");
+    control_write_onereply(conn, 512, "Too many auth clients");
     goto out;
   } else if (non_anonymous != rend_service_non_anonymous_mode_enabled(
                                                               get_options())) {
@@ -4620,9 +4590,8 @@ handle_control_add_onion(control_connection_t *conn,
      * 512 Tor is in non-anonymous hidden service mode
      * (I've deliberately written them out in full here to aid searchability.)
      */
-    connection_printf_to_buf(conn, "512 Tor is in %sanonymous hidden service "
-                             "mode\r\n",
-                             non_anonymous ? "" : "non-");
+    control_printf_onereply(conn, 512, "Tor is in %sanonymous hidden service "
+                            "mode", non_anonymous ? "" : "non-");
     goto out;
   }
 
@@ -4647,7 +4616,7 @@ handle_control_add_onion(control_connection_t *conn,
   /* Hidden service version 3 don't have client authentication support so if
    * ClientAuth was given, send back an error. */
   if (hs_version == HS_VERSION_THREE && auth_clients) {
-    connection_printf_to_buf(conn, "513 ClientAuth not supported\r\n");
+    control_write_onereply(conn, 513, "ClientAuth not supported");
     goto out;
   }
 
@@ -4677,42 +4646,42 @@ handle_control_add_onion(control_connection_t *conn,
     }
 
     tor_assert(service_id);
-    connection_printf_to_buf(conn, "250-ServiceID=%s\r\n", service_id);
+    control_printf_midreply(conn, 250, "ServiceID=%s", service_id);
     if (key_new_alg) {
       tor_assert(key_new_blob);
-      connection_printf_to_buf(conn, "250-PrivateKey=%s:%s\r\n",
-                               key_new_alg, key_new_blob);
+      control_printf_midreply(conn, 250, "PrivateKey=%s:%s",
+                              key_new_alg, key_new_blob);
     }
     if (auth_created_clients) {
       SMARTLIST_FOREACH(auth_created_clients, rend_authorized_client_t *, ac, {
         char *encoded = rend_auth_encode_cookie(ac->descriptor_cookie,
                                                 auth_type);
         tor_assert(encoded);
-        connection_printf_to_buf(conn, "250-ClientAuth=%s:%s\r\n",
-                                 ac->client_name, encoded);
+        control_printf_midreply(conn, 250, "ClientAuth=%s:%s",
+                                ac->client_name, encoded);
         memwipe(encoded, 0, strlen(encoded));
         tor_free(encoded);
       });
     }
 
-    connection_printf_to_buf(conn, "250 OK\r\n");
+    control_write_onereply(conn, 250, "OK");
     break;
   }
   case RSAE_BADPRIVKEY:
-    connection_printf_to_buf(conn, "551 Failed to generate onion address\r\n");
+    control_write_onereply(conn, 551, "Failed to generate onion address");
     break;
   case RSAE_ADDREXISTS:
-    connection_printf_to_buf(conn, "550 Onion address collision\r\n");
+    control_write_onereply(conn, 550, "Onion address collision");
     break;
   case RSAE_BADVIRTPORT:
-    connection_printf_to_buf(conn, "512 Invalid VIRTPORT/TARGET\r\n");
+    control_write_onereply(conn, 512, "Invalid VIRTPORT/TARGET");
     break;
   case RSAE_BADAUTH:
-    connection_printf_to_buf(conn, "512 Invalid client authorization\r\n");
+    control_write_onereply(conn, 512, "Invalid client authorization");
     break;
   case RSAE_INTERNAL: /* FALLSTHROUGH */
   default:
-    connection_printf_to_buf(conn, "551 Failed to add Onion Service\r\n");
+    control_write_onereply(conn, 551, "Failed to add Onion Service");
   }
   if (key_new_blob) {
     memwipe(key_new_blob, 0, strlen(key_new_blob));
@@ -4960,7 +4929,7 @@ handle_control_del_onion(control_connection_t *conn,
   } else if (hs_address_is_valid(service_id)) {
     hs_version = HS_VERSION_THREE;
   } else {
-    connection_printf_to_buf(conn, "512 Malformed Onion Service id\r\n");
+    control_write_onereply(conn, 512, "Malformed Onion Service id");
     goto out;
   }
 
@@ -4984,7 +4953,7 @@ handle_control_del_onion(control_connection_t *conn,
     }
   }
   if (onion_services == NULL) {
-    connection_printf_to_buf(conn, "552 Unknown Onion Service id\r\n");
+    control_write_onereply(conn, 552, "Unknown Onion Service id");
   } else {
     int ret = -1;
     switch (hs_version) {
@@ -5214,7 +5183,7 @@ connection_control_process_inbuf(control_connection_t *conn)
         return 0;
       else if (r == -1) {
         if (data_len + conn->incoming_cmd_cur_len > MAX_COMMAND_LINE_LENGTH) {
-          connection_write_str_to_buf("500 Line too long.\r\n", conn);
+          control_write_onereply(conn, 500, "Line too long.");
           connection_stop_reading(TO_CONN(conn));
           connection_mark_and_flush(TO_CONN(conn));
         }
@@ -5275,20 +5244,20 @@ connection_control_process_inbuf(control_connection_t *conn)
 
   /* Otherwise, Quit is always valid. */
   if (!strcasecmp(conn->incoming_cmd, "QUIT")) {
-    connection_write_str_to_buf("250 closing connection\r\n", conn);
+    control_write_onereply(conn, 250, "closing connection");
     connection_mark_and_flush(TO_CONN(conn));
     return 0;
   }
 
   if (conn->base_.state == CONTROL_CONN_STATE_NEEDAUTH &&
       !is_valid_initial_command(conn, conn->incoming_cmd)) {
-    connection_write_str_to_buf("514 Authentication required.\r\n", conn);
+    control_write_onereply(conn, 514, "Authentication required.");
     connection_mark_for_close(TO_CONN(conn));
     return 0;
   }
 
   if (data_len >= UINT32_MAX) {
-    connection_write_str_to_buf("500 A 4GB command? Nice try.\r\n", conn);
+    control_write_onereply(conn, 500, "A 4GB command? Nice try.");
     connection_mark_for_close(TO_CONN(conn));
     return 0;
   }
@@ -5337,7 +5306,7 @@ connection_control_process_inbuf(control_connection_t *conn)
     if (handle_control_setcircuitpurpose(conn, cmd_data_len, args))
       return -1;
   } else if (!strcasecmp(conn->incoming_cmd, "SETROUTERPURPOSE")) {
-    connection_write_str_to_buf("511 SETROUTERPURPOSE is obsolete.\r\n", conn);
+    control_write_onereply(conn, 511, "SETROUTERPURPOSE is obsolete.");
   } else if (!strcasecmp(conn->incoming_cmd, "ATTACHSTREAM")) {
     if (handle_control_attachstream(conn, cmd_data_len, args))
       return -1;
@@ -5385,8 +5354,8 @@ connection_control_process_inbuf(control_connection_t *conn)
     if (ret)
       return -1;
   } else {
-    connection_printf_to_buf(conn, "510 Unrecognized command \"%s\"\r\n",
-                             conn->incoming_cmd);
+    control_printf_onereply(conn, 510, "Unrecognized command \"%s\"",
+                            conn->incoming_cmd);
   }
 
   conn->incoming_cmd_cur_len = 0;
